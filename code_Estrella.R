@@ -1,0 +1,337 @@
+# Libraries
+library(tidyverse)
+library(readxl)
+library(tidymodels)
+library(compareGroups)
+library(themis)
+library(DALEXtra)
+library(agua)
+library(h2o)
+
+## GGplot2 theme
+theme_set(theme_bw())
+
+# Data --------------------------------------------------------------------
+
+#df<- read_excel("C:/Users/1494617/Dropbox/Doctorat/DA HRV/ML Analysis/data/HRV v10_Total Param UPC_130seg.xls")
+df<- read_excel("C:/Users/estre/Dropbox/Doctorat/DA HRV/ML Analysis/data/HRV v10_Total Param UPC_130seg.xls")
+# Data preparation. (OUTCOMES)
+df$Sport2<-as.factor(df$Sport2)#levels(df$Sport2)<- c("Student", "Athlete") 
+
+df$Sport<-as.factor(df$Sport)#levels(df$Sport)<- c("soccer", "hockey", "basket", "student") 
+
+# Data cleaning
+#Removing innecessary features
+df <- df %>% 
+  select(-c(Breathing, Team_Club, Gender, Age, Weight, Height, 'Duration(s)', Semafor_3)) 
+
+
+
+# Algorithms especification ----------------------------------------------------
+
+## Random Forest
+rf_spec <- 
+  rand_forest(
+    mtry = tune(),
+    trees = tune(),
+    min_n = tune()
+  ) %>% 
+  set_mode("classification") %>% 
+  set_engine("ranger", importance = "impurity")
+
+##XGBoost
+xgb_spec <- 
+  boost_tree(
+    mtry = tune(),
+    trees = tune(),
+    min_n = tune(),
+    learn_rate = tune()
+  ) %>% 
+  set_mode("classification") %>% 
+  set_engine("xgboost", importance = "impurity")
+
+## Support Vector Machine
+svm_spec <-
+  svm_rbf(
+    cost = tune(),
+    rbf_sigma = tune()
+  ) %>%
+  set_mode("classification") %>%
+  set_engine("kernlab")
+
+# Evaluation metrics
+ev_metrics <- metric_set(accuracy, precision, sensitivity, specificity, roc_auc,recall)
+
+
+# MODEL 1 (Athletes vs. Students) -----------------------------------------
+
+## Data ----
+at_df <- df %>% 
+  select(-Sport)
+
+### Descriptives
+desc_M1 <- compareGroups(Sport2 ~ . -Subject, data= at_df)
+createTable(desc_M1)
+
+### Visualization
+at_df %>% 
+  ggplot(aes(mRR, fill = Sport2))+
+  geom_density(alpha = 0.5)+
+  labs(x = "mRR",
+       fill = "")
+
+at_df %>% 
+  ggplot(aes(Sport2, mRR, color = Sport2))+
+  geom_jitter(alpha = 0.5)+
+  geom_violin(aes(fill= Sport2), alpha = 0.5)+
+  labs(x = "Outcome",
+       y = "mRR",
+       color = "")+
+  theme(legend.position = "none")
+
+## Dataset Division ----
+set.seed(1996)
+at_split <- group_initial_split(at_df, Subject, prop= 0.8, strata = Sport2)
+at_training <- training(at_split)
+at_test <- testing(at_split)
+
+at_split
+
+### Bootstrap resampling
+set.seed(2024)
+at_boot <- bootstraps(at_training, strata = Sport2)
+at_boot
+
+## Recipe ----
+at_rec<- 
+  recipe(formula = Sport2 ~  ., 
+         data = at_training) %>% 
+  step_rm(Subject) %>% 
+  step_smote(Sport2, neighbors = 10)
+
+## Workflow ----
+
+### Random Forest
+at_wf_rf <- 
+  workflow() %>% 
+  add_recipe(at_rec) %>% 
+  add_model(rf_spec)
+
+### XGBoost
+at_wf_xgb <- workflow() %>% 
+  add_recipe(at_rec) %>% 
+  add_model(xgb_spec)
+
+### SVM
+at_wf_svm <- workflow() %>% 
+  add_recipe(at_rec) %>% 
+  add_model(svm_spec)
+
+
+## Hyperparameters ----
+
+### Random Forest
+doParallel::registerDoParallel()
+
+set.seed(1234)
+
+at_hyperparametros_rf <-
+  tune_grid(
+    object = at_wf_rf,
+    resamples = at_boot,
+    grid = grid_max_entropy(
+      mtry(range  = c(2, 10)),
+      min_n(range = c(5, 30)),
+      trees(range = c(100, 500)),
+      size = 10
+    ),
+    metrics = ev_metrics,
+    control = control_grid(save_pred = TRUE)
+  )
+
+#### Visualization
+at_hyperparametros_rf %>% 
+  collect_metrics() %>% 
+  pivot_longer(cols = c('mtry','trees','min_n'), names_to = 'hyperparameters', values_to = 'Hyperparameters_value') %>% 
+  ggplot(aes(Hyperparameters_value, mean, color=mean)) +
+  geom_point() +
+  facet_grid(.metric~hyperparameters, scales = 'free') +
+  scale_color_viridis_b()
+
+#### BEST CONFIGURATION
+at_best_auc_rf <- at_hyperparametros_rf %>% show_best(metric = "roc_auc", n=1)
+
+### XGBoost
+doParallel::registerDoParallel()
+
+set.seed(1234)
+
+at_hyperparametros_xgb <-
+  tune_grid(
+    object = at_wf_xgb,
+    resamples = at_boot,
+    grid = grid_max_entropy(
+      mtry(range  = c(2, 10)),
+      min_n(range = c(5, 30)),
+      trees(range = c(100, 500)),
+      learn_rate(),
+      size = 10
+    ),
+    metrics = ev_metrics,
+    control = control_grid(save_pred = TRUE)
+  )
+
+#### Visualization
+at_hyperparametros_xgb %>% 
+  collect_metrics() %>% 
+  pivot_longer(cols = c('mtry','trees','min_n', 'learn_rate'), names_to = 'hyperparameters', values_to = 'Hyperparameters_value') %>% 
+  ggplot(aes(Hyperparameters_value, mean, color=mean)) +
+  geom_point() +
+  facet_grid(.metric~hyperparameters, scales = 'free') +
+  scale_color_viridis_b()
+
+#### BEST CONFIGURATION
+at_best_auc_xgb <- at_hyperparametros_xgb %>% show_best(metric = "roc_auc", n=1)
+
+### SVM
+doParallel::registerDoParallel()
+
+set.seed(1234)
+
+at_hyperparametros_svm <-
+  tune_grid(
+    object = at_wf_svm,
+    resamples = at_boot,
+    metrics = ev_metrics,
+    control = control_grid(save_pred = TRUE)
+  )
+
+#### Visualization
+at_hyperparametros_svm %>% 
+  collect_metrics() %>% 
+  pivot_longer(cols = c("cost", "rbf_sigma"), names_to = 'hyperparameters', values_to = 'Hyperparameters_value') %>% 
+  ggplot(aes(Hyperparameters_value, mean, color=mean)) +
+  geom_point() +
+  facet_grid(.metric~hyperparameters, scales = 'free') +
+  scale_color_viridis_b()
+
+#### BEST CONFIGURATION
+at_best_auc_svm <- at_hyperparametros_svm %>% show_best(metric = "roc_auc", n=1)
+
+
+## Modelling ----
+
+### Random Forest
+at_modelo_rf_final <- 
+  at_wf_rf %>%
+  finalize_workflow(at_best_auc_rf) %>% 
+  last_fit(at_split, metrics = ev_metrics)
+
+at_modelo_rf_final %>% 
+  collect_metrics() %>% 
+  select(-.estimator, -.config) %>% 
+  mutate(metrica_redondeada = round(.estimate, 2)) %>% 
+  knitr::kable()
+
+results_at_rf<- 
+  at_modelo_rf_final %>% 
+  collect_metrics() %>% 
+  select(-.estimator, -.config)
+
+### XGBoost
+at_modelo_xgb_final <- 
+  at_wf_xgb %>%
+  finalize_workflow(at_best_auc_xgb) %>% 
+  last_fit(at_split, metrics = ev_metrics)
+
+at_modelo_xgb_final %>% 
+  collect_metrics() %>% 
+  select(-.estimator, -.config) %>% 
+  mutate(metrica_redondeada = round(.estimate, 2)) %>% 
+  knitr::kable()
+
+results_at_xgb <- 
+  at_modelo_xgb_final %>% 
+  collect_metrics() %>% 
+  select(-.estimator, -.config)
+
+### SVM
+at_modelo_svm_final <- 
+  at_wf_svm %>%
+  finalize_workflow(at_best_auc_svm) %>% 
+  last_fit(at_split, metrics = ev_metrics)
+
+at_modelo_svm_final %>% 
+  collect_metrics() %>% 
+  select(-.estimator, -.config) %>% 
+  mutate(metrica_redondeada = round(.estimate, 2)) %>% 
+  knitr::kable()
+
+results_at_svm<-
+  at_modelo_svm_final %>% 
+  collect_metrics() %>% 
+  select(-.estimator, -.config)
+
+## Performance visualization
+at_results<- data.frame(
+  metrica = results_at_rf$.metric,
+  RF = results_at_rf$.estimate,
+  XGBoost = results_at_xgb$.estimate,
+  SVM = results_at_svm$.estimate
+)
+
+at_results <-
+  at_results %>%
+  pivot_longer(cols = c("RF", "XGBoost", "SVM"), 
+               names_to = "modelo") %>%
+  filter(metrica == "accuracy" |
+           metrica == "precision" |
+           metrica == "recall" | 
+           metrica == "roc_auc")  %>%
+  mutate(metrica = factor(metrica), 
+         modelo = factor(modelo))
+
+levels(at_results$metrica) <- c("Accuracy", "Precision", "Recall", "ROC AUC")
+
+plot_m1_metrics <- at_results %>% 
+  ggplot(aes(x = metrica, y = value, fill = modelo))+
+  geom_col(position = "dodge")+ 
+  scale_fill_brewer(palette= "Pastel2")+
+  scale_y_continuous(limits = c(0,1), expand = c(0,0))+
+  labs(y = "", 
+       x = "Metric",
+       fill= NULL,
+       title= "Model 1
+       ")
+
+plot_m1_metrics
+
+
+## Interpretation ----
+set.seed(0306)
+
+h2o_start()
+
+model_h2o_rf <- rand_forest(
+  mtry = 5, 
+  trees = 429, 
+  min_n = 16) %>% 
+  set_engine("h2o", max_runtime_secs = 20) %>% 
+  set_mode('classification') %>% 
+  fit(Sport2 ~ ., data = at_rec %>% prep () %>% bake(new_data = NULL)) 
+
+int_h2o_rf <- as.h2o(
+  at_rec %>% prep() %>% bake(new_data = at_test))
+
+g <- model_h2o_rf %>%  
+  extract_fit_engine() %>% 
+  h2o::h2o.shap_summary_plot(int_h2o_rf,
+                             top_n_features = 5)
+
+g + labs(title = "",
+         color = "Normalized original value
+         ",
+         x = "Features
+         ")
+
+
