@@ -34,10 +34,22 @@ df$Sport<-as.factor(df$Sport)
 
 # General Cleaning and Descriptives ------------------------------------------------------------
 
-# Data cleaning for modelling
-#Removing innecessary features
+mean(df$Age)
+sd(df$Age)
+
+gen_0 <- df %>%
+  filter(Gender == 0)
+length(unique(gen_0$Subject))
+
+gen_1 <- df %>%
+  filter(Gender == 1)
+length(unique(gen_1$Subject))
+
+# Removing no physiological features
 df <- df %>% 
   select(-c(Breathing, Team_Club, Gender, Age, Weight, Height, 'Duration(s)', Semafor_3)) 
+
+
 
 colnames(df) <- c("Subject", "Sport",
                   "Sport2", "mRR", 
@@ -58,6 +70,18 @@ levels(df_desc$Sport2)<- c("Student (non-Athlete)", "Athlete")
 
 df_desc$Sport<-as.factor(df_desc$Sport)
 levels(df_desc$Sport)<- c("soccer", "hockey", "basket", "student")
+
+fut <- df_desc %>%
+  filter(Sport == "soccer")
+length(unique(fut$Subject))
+
+bas <- df_desc %>%
+  filter(Sport == "basket")
+length(unique(bas$Subject))
+
+hockey <- df_desc %>%
+  filter(Sport == "hockey")
+length(unique(hockey$Subject))
 
 
 df_desc %>% 
@@ -389,7 +413,7 @@ fig3a <- at_prediction %>%
     cols = starts_with(".pred"),
     names_to = "prediction",
     values_to = "Index") %>%
-  filter(True == "Athlete") %>% 
+  filter(True == 1) %>% 
   ggplot(aes(x = n, y = Index, fill = as.factor(prediction)))+
   geom_col(position = position_stack(reverse = TRUE), 
            alpha = .5,
@@ -400,7 +424,7 @@ fig3a <- at_prediction %>%
   theme(axis.title.y=element_blank(),
         axis.text.y = element_blank(),
         axis.ticks.y= element_blank()) + 
-  labs(title = "True Athlete (n = 165)") +
+  labs(title = "a) True Athlete (n = 165)") +
   scale_y_continuous(expand = c(0.01,0.01)) +
   guides(fill = FALSE)+
   coord_flip()
@@ -414,7 +438,7 @@ fig3b <- at_prediction %>%
     cols = starts_with(".pred"),
     names_to = "prediction",
     values_to = "Index") %>%
-  filter(True != "Athlete") %>% 
+  filter(True != 1) %>% 
   ggplot(aes(x = n, y = Index, fill = as.factor(prediction)))+
   geom_col(position = "stack", 
            alpha = .5,
@@ -429,7 +453,7 @@ fig3b <- at_prediction %>%
         legend.title = element_text(face = "bold"),
         legend.position = "bottom",
         legend.background = element_rect(color = "black")) + 
-  labs(title = "True Student (n = 99)",
+  labs(title = "b) True Student (n = 99)",
        fill = "Prediction") +
   scale_y_continuous(expand = c(0.01,0.01)) +
   coord_flip()
@@ -445,36 +469,13 @@ new_pred <- cbind(new_pred, new_prediction)
 
 new_pred <- new_pred %>% 
   mutate(true = as.factor(c("Non-Athlete", "Non-Athlete", "Athlete", "Athlete")),
-         name = as.factor(c("Sedentary", "Patient", "Football Player", "Basketball player"))) %>% 
+         name = as.factor(c("Sedentary Person", "Patient", "Football Player", "Basketball player"))) %>% 
   pivot_longer(cols = starts_with(".pred"), 
                names_to = "prediction",
                values_to = "Index") %>% 
   select(c(Subject, prediction, Index, true, name)) %>% 
   filter(name != "Patient") #delating the patient subject
 
-new_pred %>% 
-  ggplot(aes(Index, name))+
-  geom_segment(
-    data = new_pred %>% 
-      pivot_wider( names_from = prediction,
-                   values_from = Index), 
-    aes(x = `.pred_Student (non-Athlete)`, xend = .pred_Athlete, 
-        y = name, yend = name),
-    alpha = 0.7, color = "gray70", size = 1.5)+
-  geom_point(aes(color= prediction), size = 5) + 
-  scale_x_continuous(limits = c(0, 1), 
-                     labels = scales::percent)+
-  scale_color_brewer(palette = "Set2", 
-                    labels = c("Athlete", "Non-Athlete"))+
-  labs(y = NULL, 
-       color = "Predicted",
-       x = "
-       Athleticism Index")+
-  theme_bw(base_size = 15)+
-  theme(legend.justification = "center",
-        legend.background = element_rect(color = 1),
-        axis.text.x  = element_text(colour = "black", size = 11, face= "bold"),
-        axis.text.y = element_text(colour = "black", size = 11, face= "bold"))
 
 ## Interpretation ----
 set.seed(0306)
@@ -497,15 +498,13 @@ g <- model_h2o_rf %>%
   h2o::h2o.shap_summary_plot(int_h2o_rf,
                              top_n_features = 10)
 
-shap_m1 <- g + labs(title = "Model 1
+shap_m1 <- g + labs(title = "a) Model 1
          ",
          color = "Normalized original value
          ",
          x = "Features
          ",
-         y = "SHAP Contribution
-         
-         (a)")+
+         y = "SHAP Contribution")+
   theme(plot.title = element_text(hjust = 0))+ 
   guides(color = FALSE)
 
@@ -853,19 +852,17 @@ g2 <- modelo3_h2o_rf %>%
   h2o::h2o.shap_summary_plot(int3_h2o_rf,
                              top_n_features = 10) #top_n_features = 10
 
-shap_m2 <- g2 + labs(title = "Model 2",
+shap_m2 <- g2 + labs(title = "b) Model 2",
           color = "Normalized original value
          ",
           x = "
          ", 
-          y = "SHAP contribution
-          
-          (b)")+
+          y = "SHAP contribution")+
   theme(plot.title = element_text(hjust = 0))
 
 
 # Figure 2 ----
-plot_m1_metrics + plot_m2_metrics
+shap_m1 + shap_m2
 
 # Figure 3----
 
@@ -891,15 +888,22 @@ new_pred %>%
        color = "Predicted",
        x = "
        Athleticism Index")+
+  annotate("text", 
+           x = c(0.05, 0.91, 1), 
+           y = c("Sedentary Person", "Football Player", "Basketball player"),
+           label = c("0.128%", "0.824%", "0.922%"),
+           fontface = "bold",
+           size = 3.8)+
   theme_bw(base_size = 15)+
   theme(legend.justification = "center",
         legend.background = element_rect(color = 1),
         axis.text.x  = element_text(colour = "black", size = 11, face= "bold"),
         axis.text.y = element_text(colour = "black", size = 11, face= "bold"))
+  
 
-# Figure 5----
 
-shap_m1 + shap_m2
+
+
 
 
 
