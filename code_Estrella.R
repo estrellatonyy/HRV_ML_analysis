@@ -1,8 +1,7 @@
 #### Title: Identification of athleticism and sports profiles throughout 
 #### machine learning applied to heart rate variability.
 #### Author: Tony Estrella
-#### October 2024
-
+#### October 2024. Reviewed in December 2024
 
 # Libraries ----
 library(tidyverse)
@@ -15,9 +14,14 @@ library(agua)
 library(h2o)
 library(patchwork)
 library(gtsummary)
+library(extrafont)
+
 
 ## GGplot2 theme
 theme_set(theme_bw())
+## Font family
+font_import()
+loadfonts(device = "win")
 
 # Data --------------------------------------------------------------------
 
@@ -34,22 +38,10 @@ df$Sport<-as.factor(df$Sport)
 
 # General Cleaning and Descriptives ------------------------------------------------------------
 
-mean(df$Age)
-sd(df$Age)
-
-gen_0 <- df %>%
-  filter(Gender == 0)
-length(unique(gen_0$Subject))
-
-gen_1 <- df %>%
-  filter(Gender == 1)
-length(unique(gen_1$Subject))
-
-# Removing no physiological features
+# Data cleaning for modelling
+#Removing innecessary features
 df <- df %>% 
   select(-c(Breathing, Team_Club, Gender, Age, Weight, Height, 'Duration(s)', Semafor_3)) 
-
-
 
 colnames(df) <- c("Subject", "Sport",
                   "Sport2", "mRR", 
@@ -57,8 +49,8 @@ colnames(df) <- c("Subject", "Sport",
                   "pNN50", "TI",
                   "HF", "LF",
                   "VLF", "LF/HF",
-                  "HFnu", "HFnu_v2",
-                  "VLFnu_v2", "LFnu_v2",
+                  "HFnu", "HFnu_TP",
+                  "VLFnu_TP", "LFnu_TP",
                   "SD1", "SD2",
                   "LFnu")
 
@@ -70,18 +62,6 @@ levels(df_desc$Sport2)<- c("Student (non-Athlete)", "Athlete")
 
 df_desc$Sport<-as.factor(df_desc$Sport)
 levels(df_desc$Sport)<- c("soccer", "hockey", "basket", "student")
-
-fut <- df_desc %>%
-  filter(Sport == "soccer")
-length(unique(fut$Subject))
-
-bas <- df_desc %>%
-  filter(Sport == "basket")
-length(unique(bas$Subject))
-
-hockey <- df_desc %>%
-  filter(Sport == "hockey")
-length(unique(hockey$Subject))
 
 
 df_desc %>% 
@@ -215,11 +195,10 @@ at_wf_svm <- workflow() %>%
 
 ## Hyperparameters ----
 
-### Random Forest
+### Random Forest ----
 doParallel::registerDoParallel()
 
 set.seed(1234)
-
 at_hyperparametros_rf <-
   tune_grid(
     object = at_wf_rf,
@@ -234,7 +213,7 @@ at_hyperparametros_rf <-
     control = control_grid(save_pred = TRUE)
   )
 
-#### Visualization
+#### Visualization Figure S1----
 at_hyperparametros_rf %>% 
   collect_metrics() %>% 
   pivot_longer(cols = c('mtry','trees','min_n'),
@@ -243,12 +222,23 @@ at_hyperparametros_rf %>%
   ggplot(aes(Hyperparameters_value, mean, color=mean)) +
   geom_point() +
   facet_grid(.metric~hyperparameters, scales = 'free') +
-  scale_color_viridis_b()
+  labs(y = "Metric mean
+       ",
+       x = "Hyperparameters value",
+       title = "Random Forest hyperparameters search for Model 1",
+       color = "Mean")+
+  scale_color_viridis_b()+
+  theme_bw(base_size = 15,
+           base_family = "Palatino Linotype")+
+  theme(axis.text.x  = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"),
+        axis.text.y = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"))
+
+
 
 #### BEST CONFIGURATION
 at_best_auc_rf <- at_hyperparametros_rf %>% show_best(metric = "roc_auc", n=1)
 
-### XGBoost
+### XGBoost ----
 doParallel::registerDoParallel()
 
 set.seed(1234)
@@ -268,19 +258,30 @@ at_hyperparametros_xgb <-
     control = control_grid(save_pred = TRUE)
   )
 
-#### Visualization
+#### Visualization Figure S3 ----
 at_hyperparametros_xgb %>% 
   collect_metrics() %>% 
   pivot_longer(cols = c('mtry','trees','min_n', 'learn_rate'), names_to = 'hyperparameters', values_to = 'Hyperparameters_value') %>% 
   ggplot(aes(Hyperparameters_value, mean, color=mean)) +
   geom_point() +
-  facet_grid(.metric~hyperparameters, scales = 'free') +
-  scale_color_viridis_b()
+  facet_grid(.metric~hyperparameters, scales = 'free')+
+  labs(y = "Metric mean
+       ",
+       x = "Hyperparameters value",
+       title = "XGBoost hyperparameters search for Model 1",
+       color = "Mean")+
+  scale_color_viridis_b()+
+  theme_bw(base_size = 15,
+           base_family = "Palatino Linotype")+
+  theme(axis.text.x  = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"),
+        axis.text.y = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"))
+
+
 
 #### BEST CONFIGURATION
 at_best_auc_xgb <- at_hyperparametros_xgb %>% show_best(metric = "roc_auc", n=1)
 
-### SVM
+### SVM ----
 doParallel::registerDoParallel()
 
 set.seed(1234)
@@ -293,14 +294,24 @@ at_hyperparametros_svm <-
     control = control_grid(save_pred = TRUE)
   )
 
-#### Visualization
+#### Visualization Figure S5 ----
 at_hyperparametros_svm %>% 
   collect_metrics() %>% 
   pivot_longer(cols = c("cost", "rbf_sigma"), names_to = 'hyperparameters', values_to = 'Hyperparameters_value') %>% 
   ggplot(aes(Hyperparameters_value, mean, color=mean)) +
-  geom_point() +
+  geom_jitter() +
   facet_grid(.metric~hyperparameters, scales = 'free') +
-  scale_color_viridis_b()
+  labs(y = "Metric mean
+       ",
+       x = "Hyperparameters value",
+       title = "Support Vector Machine hyperparameters search for Model 1",
+       color = "Mean")+
+  scale_color_viridis_b()+
+  theme_bw(base_size = 15,
+           base_family = "Palatino Linotype")+
+  theme(axis.text.x  = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"),
+        axis.text.y = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"))
+
 
 #### BEST CONFIGURATION
 at_best_auc_svm <- at_hyperparametros_svm %>% show_best(metric = "roc_auc", n=1)
@@ -309,55 +320,134 @@ at_best_auc_svm <- at_hyperparametros_svm %>% show_best(metric = "roc_auc", n=1)
 ## Modelling ----
 
 ### Random Forest ----
+
 at_modelo_rf_final <- 
   at_wf_rf %>%
-  finalize_workflow(at_best_auc_rf) %>% 
+  finalize_workflow(at_best_auc_rf) 
+
+set.seed(201224)
+results_at_rf_resample<- fit_resamples(
+  at_modelo_rf_final,
+  resamples = at_boot,
+  metrics = ev_metrics,
+  control= control_resamples(save_pred = TRUE))
+
+
+detailed_metrics <- results_at_rf_resample %>%
+  collect_metrics(summarize = FALSE)
+
+
+metrics_with_ci_rf <- detailed_metrics %>%
+  group_by(.metric) %>%
+  summarize(
+    mean_estimate = mean(.estimate), 
+    lower = quantile(.estimate, probs = 0.025),
+    upper = quantile(.estimate, probs = 0.975),
+    .groups = "drop"
+  ) #CI 95%
+
+
+set.seed(301224) 
+at_rf_fit <- at_modelo_rf_final %>% 
   last_fit(at_split, metrics = ev_metrics)
 
-at_modelo_rf_final %>% 
+at_rf_fit %>% 
   collect_metrics() %>% 
   select(-.estimator, -.config) %>% 
   mutate(metrica_redondeada = round(.estimate, 2)) %>% 
   knitr::kable()
 
 results_at_rf<- 
-  at_modelo_rf_final %>% 
+  at_rf_fit %>% 
   collect_metrics() %>% 
   select(-.estimator, -.config)
 
 ### XGBoost ----
+
 at_modelo_xgb_final <- 
+  at_wf_xgb %>%
+  finalize_workflow(at_best_auc_xgb)
+
+set.seed(201224)
+results_at_xgb_resample<- fit_resamples(
+  at_modelo_xgb_final,
+  resamples = at_boot,
+  metrics = ev_metrics,
+  control= control_resamples(save_pred = TRUE))
+
+
+detailed_metrics_xgb <- results_at_xgb_resample %>%
+  collect_metrics(summarize = FALSE)
+
+
+metrics_with_ci_xgb <- detailed_metrics_xgb %>%
+  group_by(.metric) %>%
+  summarize(
+    mean_estimate = mean(.estimate), 
+    lower = quantile(.estimate, probs = 0.025),
+    upper = quantile(.estimate, probs = 0.975),
+    .groups = "drop"
+  ) #CI 95%
+
+
+set.seed(3012241)
+at_xgb_fit <- 
   at_wf_xgb %>%
   finalize_workflow(at_best_auc_xgb) %>% 
   last_fit(at_split, metrics = ev_metrics)
 
-at_modelo_xgb_final %>% 
+at_xgb_fit %>% 
   collect_metrics() %>% 
   select(-.estimator, -.config) %>% 
   mutate(metrica_redondeada = round(.estimate, 2)) %>% 
   knitr::kable()
 
 results_at_xgb <- 
-  at_modelo_xgb_final %>% 
+  at_xgb_fit %>% 
   collect_metrics() %>% 
   select(-.estimator, -.config)
 
 ### SVM ----
 at_modelo_svm_final <- 
   at_wf_svm %>%
+  finalize_workflow(at_best_auc_svm)
+
+set.seed(2012242)
+results_at_svm_resample<- fit_resamples(
+  at_modelo_svm_final,
+  resamples = at_boot,
+  metrics = ev_metrics,
+  control= control_resamples(save_pred = TRUE))
+
+detailed_metrics_svm <- results_at_svm_resample %>%
+  collect_metrics(summarize = FALSE)
+
+metrics_with_ci_svm <- detailed_metrics_svm %>%
+  group_by(.metric) %>%
+  summarize(
+    mean_estimate = mean(.estimate), 
+    lower = quantile(.estimate, probs = 0.025),
+    upper = quantile(.estimate, probs = 0.975),
+    .groups = "drop"
+  ) #CI 95%
+
+set.seed(3012242)
+at_smv_fit <- 
+  at_wf_svm %>%
   finalize_workflow(at_best_auc_svm) %>% 
   last_fit(at_split, metrics = ev_metrics)
 
-at_modelo_svm_final %>% 
+at_smv_fit %>% 
   collect_metrics() %>% 
   select(-.estimator, -.config) %>% 
   mutate(metrica_redondeada = round(.estimate, 2)) %>% 
   knitr::kable()
 
 results_at_svm<-
-  at_modelo_svm_final %>% 
+  at_smv_fit %>% 
   collect_metrics() %>% 
   select(-.estimator, -.config)
+
 
 ## Performance visualization
 at_results<- data.frame(
@@ -391,8 +481,7 @@ plot_m1_metrics <- at_results %>%
        (a)",
        fill= NULL,
        title= "Model 1
-       ")+
-  guides(fill = FALSE)
+       ")
 
 plot_m1_metrics
 
@@ -400,68 +489,43 @@ plot_m1_metrics
 ## Prediction ----
 
 ### Test prediction
-at_prediction <- at_modelo_svm_final %>% 
+at_prediction <- at_smv_fit %>% 
   extract_workflow() %>% 
   predict(at_test, type = "prob")
   
 
-fig3a <- at_prediction %>%
-  mutate(True = as.factor(at_test$Sport2)) %>%
-  arrange(desc(.pred_Athlete)) %>% 
-  mutate(n = as.factor(seq(1, length(.pred_Athlete)))) %>% 
-  pivot_longer(
-    cols = starts_with(".pred"),
-    names_to = "prediction",
-    values_to = "Index") %>%
-  filter(True == 1) %>% 
-  ggplot(aes(x = n, y = Index, fill = as.factor(prediction)))+
-  geom_col(position = position_stack(reverse = TRUE), 
-           alpha = .5,
-           width = 1)+
-  geom_hline(yintercept = 0.5,
-             linetype = "dashed")+
-  scale_fill_brewer(palette = "Set2")+
-  theme(axis.title.y=element_blank(),
-        axis.text.y = element_blank(),
-        axis.ticks.y= element_blank()) + 
-  labs(title = "a) True Athlete (n = 165)") +
-  scale_y_continuous(expand = c(0.01,0.01)) +
-  guides(fill = FALSE)+
-  coord_flip()
+at_prediction <- at_prediction %>% 
+  cbind(at_test %>% select(Sport2))
 
-
-fig3b <- at_prediction %>%
-  mutate(True = as.factor(at_test$Sport2)) %>%
-  arrange(.pred_Athlete) %>% 
-  mutate(n = as.factor(seq(1, length(.pred_Athlete)))) %>% 
-  pivot_longer(
-    cols = starts_with(".pred"),
-    names_to = "prediction",
-    values_to = "Index") %>%
-  filter(True != 1) %>% 
-  ggplot(aes(x = n, y = Index, fill = as.factor(prediction)))+
-  geom_col(position = "stack", 
-           alpha = .5,
-           width = 1)+
-  geom_hline(yintercept = 0.5,
-             linetype = "dashed")+
-  scale_fill_brewer(palette = "Set2", 
-                    labels = c("Athlete", "Student"))+
-  theme(axis.title.y=element_blank(),
-        axis.text.y = element_blank(),
-        axis.ticks.y= element_blank(), 
-        legend.title = element_text(face = "bold"),
-        legend.position = "bottom",
-        legend.background = element_rect(color = "black")) + 
-  labs(title = "b) True Student (n = 99)",
-       fill = "Prediction") +
-  scale_y_continuous(expand = c(0.01,0.01)) +
-  coord_flip()
+### Curva ROC M1
+roc_m1 <- roc_curve(at_prediction, truth = Sport2, .pred_0) %>% 
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() +
+  labs(y = "Sensitivity
+       ")+
+  scale_y_continuous(expand = c(0.01,0.01))+
+  scale_x_continuous(expand = c(0.01,0.01))+
+  theme(text = element_text(family = "Palatino", 
+                            colour = "black",
+                            size = 11,
+                            face= "bold"))+
+  theme_bw(base_size = 13)
 
 ### New prediction 
 new_pred <- readxl::read_xlsx("C:/Users/estre/Dropbox/Doctorat/Articulos/Modelos ML HRV/predicciones/M1_prediction.xlsx")
 
-new_prediction <- at_modelo_svm_final %>% 
+colnames(new_pred) <- c("Subject", 
+                        "mRR", "SDNN", "RMSSD",
+                        "pNN50", "TI",
+                        "HF", "LF", "VLF", "LF/HF",
+                        "HFnu", "LFnu", 
+                        "HFnu_TP", "VLFnu_TP", "LFnu_TP",
+                  "SD1", "SD2")
+
+
+new_prediction <- at_smv_fit %>% 
   extract_workflow() %>% 
   predict(new_pred, type = "prob")
 
@@ -469,13 +533,36 @@ new_pred <- cbind(new_pred, new_prediction)
 
 new_pred <- new_pred %>% 
   mutate(true = as.factor(c("Non-Athlete", "Non-Athlete", "Athlete", "Athlete")),
-         name = as.factor(c("Sedentary Person", "Patient", "Football Player", "Basketball player"))) %>% 
+         name = as.factor(c("Sedentary", "Patient", "Football Player", "Basketball player"))) %>% 
   pivot_longer(cols = starts_with(".pred"), 
                names_to = "prediction",
                values_to = "Index") %>% 
   select(c(Subject, prediction, Index, true, name)) %>% 
   filter(name != "Patient") #delating the patient subject
 
+new_pred %>% 
+  ggplot(aes(Index, name))+
+  geom_segment(
+    data = new_pred %>% 
+      pivot_wider( names_from = prediction,
+                   values_from = Index), 
+    aes(x = `.pred_Student (non-Athlete)`, xend = .pred_1, 
+        y = name, yend = name),
+    alpha = 0.7, color = "gray70", size = 1.5)+
+  geom_point(aes(color= prediction), size = 5) + 
+  scale_x_continuous(limits = c(0, 1), 
+                     labels = scales::percent)+
+  scale_color_brewer(palette = "Set2", 
+                    labels = c("Athlete", "Non-Athlete"))+
+  labs(y = NULL, 
+       color = "Predicted",
+       x = "
+       Athleticism Index")+
+  theme_bw(base_size = 15)+
+  theme(legend.justification = "center",
+        legend.background = element_rect(color = 1),
+        axis.text.x  = element_text(colour = "black", size = 11, face= "bold"),
+        axis.text.y = element_text(colour = "black", size = 11, face= "bold"))
 
 ## Interpretation ----
 set.seed(0306)
@@ -605,7 +692,17 @@ casfut_hyperparametros_rf %>%
   ggplot(aes(Hyperparameters_value, mean, color=mean)) +
   geom_point() +
   facet_grid(.metric~hyperparameters, scales = 'free') +
-  scale_color_viridis_b()
+  labs(y = "Metric mean
+       ",
+       x = "Hyperparameters value",
+       title = "Random Forest hyperparameters search for Model 2",
+       color = "Mean")+
+  scale_color_viridis_b()+
+  theme_bw(base_size = 15,
+           base_family = "Palatino Linotype")+
+  theme(axis.text.x  = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"),
+        axis.text.y = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"))
+
 
 #### BEST CONFIGURATION
 casfut_best_auc_rf <- casfut_hyperparametros_rf %>%
@@ -633,13 +730,23 @@ casfut_hyperparametros_xgb <-
 ### Visualization
 casfut_hyperparametros_xgb %>%
   collect_metrics() %>%    
-  pivot_longer(cols = c('mtry','trees','min_n'), 
+  pivot_longer(cols = c('mtry','trees','min_n', 'learn_rate'), 
                names_to = 'tipo_parametro', 
                values_to = 'valor_parametro') %>%    
   ggplot(aes(valor_parametro, mean, color=mean)) +   
   geom_point() +   
   facet_grid(.metric~tipo_parametro, scales = 'free' ) +   
-  scale_color_viridis_b()
+  labs(y = "Metric mean
+       ",
+       x = "Hyperparameters value",
+       title = "XGBoost hyperparameters search for Model 2",
+       color = "Mean")+
+  scale_color_viridis_b()+
+  theme_bw(base_size = 15,
+           base_family = "Palatino Linotype")+
+  theme(axis.text.x  = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"),
+        axis.text.y = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"))
+
 
 ### BEST CONFIGURATION
 casfut_mejor_hyper_xgb <- casfut_hyperparametros_xgb %>% show_best(metric = "roc_auc", n = 1)
@@ -656,27 +763,63 @@ casfut_hyperparametros_svm <-
     control = control_grid(save_pred = TRUE)
   )
 
+### Visualization
+casfut_hyperparametros_svm %>%
+  collect_metrics() %>% 
+  pivot_longer(cols = c("cost", "rbf_sigma"), names_to = 'hyperparameters', values_to = 'Hyperparameters_value') %>% 
+  ggplot(aes(Hyperparameters_value, mean, color=mean)) +
+  geom_jitter() +
+  facet_grid(.metric~hyperparameters, scales = 'free') +
+  labs(y = "Metric mean
+       ",
+       x = "Hyperparameters value",
+       title = "Support Vector Machine hyperparameters search for Model 2",
+       color = "Mean")+
+  scale_color_viridis_b()+
+  theme_bw(base_size = 15,
+           base_family = "Palatino Linotype")+
+  theme(axis.text.x  = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"),
+        axis.text.y = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"))
+
 ### BEST CONFIGURATION
 casfut_mejor_hyper_svm <- casfut_hyperparametros_svm %>% show_best(metric = "roc_auc", n=1)
 
 ## Modelling----
 
 ### Random Forest ----
-casfut_modelo_rf_hyperparametros <-
+casfut_rf_final <-
   casfut_wf_rf %>%
-  finalize_workflow(casfut_best_auc_rf) %>%
-  fit(data = casfut_training)  
+  finalize_workflow(casfut_best_auc_rf)
+
+set.seed(201224)
+results_casfut_rf_resample<- fit_resamples(
+  casfut_rf_final,
+  resamples = casfut_boot,
+  metrics = ev_metrics,
+  control= control_resamples(save_pred = TRUE))
+
+
+detailed_metrics_rf_m2 <- results_casfut_rf_resample %>%
+  collect_metrics(summarize = FALSE)
+
+
+metrics_with_ci_rf_m2 <- detailed_metrics_rf_m2 %>%
+  group_by(.metric) %>%
+  summarize(
+    mean_estimate = mean(.estimate), 
+    lower = quantile(.estimate, probs = 0.025),
+    upper = quantile(.estimate, probs = 0.975),
+    .groups = "drop"
+  ) #CI 95%
 
 set.seed(1256)
-casfut_modelo_rf_final <-
+casfut_rf_fit <-
   casfut_wf_rf %>%
   finalize_workflow(casfut_best_auc_rf) %>%
   last_fit(casfut_split, 
            metrics = ev_metrics)
 
-casfut_modelo_rf_final
-
-casfut_modelo_rf_final %>%   
+casfut_rf_fit %>%   
   collect_metrics() %>%
   select(-.estimator,-.config) %>%
   mutate(valor_redondeado = round(.estimate,2)) %>%    
@@ -684,43 +827,76 @@ casfut_modelo_rf_final %>%
 
 
 ### XGBoost ----
-casfut_modelo_xgb_hyperparametros <-
+casfut_xgb_final <-
   casfut_wf_xgb %>%
-  finalize_workflow(casfut_mejor_hyper_xgb) %>%
-  fit(data = casfut_training)  
+  finalize_workflow(casfut_mejor_hyper_xgb)
+
+set.seed(2012242)
+results_casfut_xgb_resample<- fit_resamples(
+  casfut_xgb_final,
+  resamples = casfut_boot,
+  metrics = ev_metrics,
+  control= control_resamples(save_pred = TRUE))
+
+
+detailed_metrics_xgb_m2 <- results_casfut_xgb_resample %>%
+  collect_metrics(summarize = FALSE)
+
+metrics_with_ci_xgb_m2 <- detailed_metrics_xgb_m2 %>%
+  group_by(.metric) %>%
+  summarize(
+    mean_estimate = mean(.estimate), 
+    lower = quantile(.estimate, probs = 0.025),
+    upper = quantile(.estimate, probs = 0.975),
+    .groups = "drop"
+  ) #CI 95%
 
 set.seed(1256)
-casfut_modelo_xgb_final <-
+casfut_xgb_fit <-
   casfut_wf_xgb %>%
   finalize_workflow(casfut_mejor_hyper_xgb) %>%
   last_fit(casfut_split, 
            metrics = ev_metrics)
 
-casfut_modelo_xgb_final
-
-casfut_modelo_xgb_final %>%   
+casfut_xgb_fit %>%   
   collect_metrics() %>%
   select(-.estimator,-.config) %>%
   mutate(valor_redondeado = round(.estimate,2)) %>%    
   knitr::kable()
 
-
 ### SVM ----
-casfut_modelo_svm_hyperparametros <-
+casfut_svm_final <-
   casfut_wf_svm %>%
-  finalize_workflow(casfut_mejor_hyper_svm) %>%
-  fit(data = casfut_training)  
+  finalize_workflow(casfut_mejor_hyper_svm)
+
+set.seed(2012243)
+results_casfut_svm_resample<- fit_resamples(
+  casfut_svm_final,
+  resamples = casfut_boot,
+  metrics = ev_metrics,
+  control= control_resamples(save_pred = TRUE))
+
+
+detailed_metrics_svm_m2 <- results_casfut_svm_resample %>%
+  collect_metrics(summarize = FALSE)
+
+metrics_with_ci_svm_m2 <- detailed_metrics_svm_m2 %>%
+  group_by(.metric) %>%
+  summarize(
+    mean_estimate = mean(.estimate), 
+    lower = quantile(.estimate, probs = 0.025),
+    upper = quantile(.estimate, probs = 0.975),
+    .groups = "drop"
+  ) #CI 95%
 
 set.seed(1256)
-casfut_modelo_svm_final <-
+casfut_svm_fit <-
   casfut_wf_svm %>%
   finalize_workflow(casfut_mejor_hyper_svm) %>%
   last_fit(casfut_split, 
            metrics = ev_metrics)
 
-casfut_modelo_svm_final
-
-casfut_modelo_svm_final %>%   
+casfut_svm_fit %>%   
   collect_metrics() %>%
   select(-.estimator,-.config) %>%
   mutate(valor_redondeado = round(.estimate,2)) %>%    
@@ -728,17 +904,17 @@ casfut_modelo_svm_final %>%
 
 ### Visualization
 results_modelo2_rf<-
-  casfut_modelo_rf_final %>% 
+  casfut_rf_fit %>% 
   collect_metrics() %>% 
   select(-.estimator, -.config) 
 
 results_modelo2_xgb<-
-  casfut_modelo_xgb_final %>% 
+  casfut_xgb_fit %>% 
   collect_metrics() %>% 
   select(-.estimator, -.config) 
 
 results_modelo2_svm<-
-  casfut_modelo_svm_final %>% 
+  casfut_svm_fit %>% 
   collect_metrics() %>% 
   select(-.estimator, -.config) 
 
@@ -781,7 +957,7 @@ plot_m2_metrics <- casm2_results %>%
 ## Prediction ----
 
 ### Test prediction
-cas_prediction <- casfut_modelo_rf_final %>% 
+cas_prediction <- casfut_rf_fit %>% 
   extract_workflow() %>% 
   predict(casfut_test, type = "prob")
 
@@ -790,41 +966,25 @@ cas_prediction<- cas_prediction %>%
   mutate(true_value = casfut_test$cas_fut)
 cas_prediction
 
-
+### Curva ROC M2
+roc_m2 <- roc_curve(cas_prediction, truth = true_value, .pred_0) %>% 
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() +
+  labs(y = "
+       ")+
+  scale_y_continuous(expand = c(0.01,0.01))+
+  scale_x_continuous(expand = c(0.01,0.01))+
+  theme(text = element_text(family = "Palatino", 
+                            colour = "black",
+                            size = 11,
+                            face= "bold"))+
+  theme_bw(base_size = 13)
 
 ### Explanation of misspredictions
 
 test_pred <- cbind(casfut_test, cas_prediction) #adding probability and true value
-
-#select the best stronger and the weaker prediction
-higher_miss <- test_pred %>% filter(true_value == 1 & .pred_0 > 0.79)
-higher_correc <- test_pred %>% filter(true_value == 1 & .pred_1 > 0.99)
-
-df_explanation <- rbind(higher_miss, higher_correc)
-
-# Visualization based on SHAP values parameters (next section)
-## Frequency domain values
-
-df_explanation %>%
-  mutate(classification = as.factor(ifelse(.pred_1 > 0.5 ,"0.9924", "0.2044"))) %>% 
-  pivot_longer(cols = c("LF", "HF"), 
-               names_to = "Frequency Domain", 
-               values_to = "values") %>% 
-  select(classification, 'Frequency Domain', values) %>%
-  ggplot(aes(classification, values, fill = as.factor(`Frequency Domain`))) +
-  geom_col(position = "dodge", color = "black", alpha = 0.7)+
-  labs(x = " Identification Index",
-       y = "Value
-       ",
-       fill = NULL,
-       title = "") + 
-  scale_fill_brewer(palette = "Set2")+
-  scale_y_continuous(expand = c(0, 0))+
-  theme_classic(base_size = 15)+
-  theme(legend.justification = "center",
-        legend.background = element_rect(color = 1),
-        axis.text.x  = element_text(colour = "black", size = 11, face= "bold"),
-        axis.text.y = element_text(colour = "black", size = 11, face= "bold"))
 
 
 ## Interpretation ----
@@ -862,21 +1022,112 @@ shap_m2 <- g2 + labs(title = "b) Model 2",
 
 
 # Figure 2 ----
-shap_m1 + shap_m2
+plot_m1_metrics + plot_m2_metrics
 
 # Figure 3----
+### These figures were updated after the first peer-review
+
+fig3a <- at_prediction %>%
+  mutate(True = as.factor(at_test$Sport2)) %>%
+  arrange(desc(.pred_1)) %>% 
+  mutate(n = as.factor(seq(1, length(.pred_1)))) %>% 
+  pivot_longer(
+    cols = starts_with(".pred"),
+    names_to = "prediction",
+    values_to = "Index") %>%
+  filter(True == 1) %>% 
+  ggplot(aes(x = n, y = Index, fill = as.factor(prediction)))+
+  geom_col(position = position_stack(reverse = TRUE), 
+           alpha = .5,
+           width = 1)+
+  geom_hline(yintercept = 0.5,
+             linetype = "dashed")+
+  scale_fill_brewer(palette = "Set2")+
+  theme(axis.title.y=element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y= element_blank()) + 
+  labs(title = "True Athlete (n = 165)") +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+  guides(fill = FALSE)+
+  coord_flip()
+
+
+fig3b <- at_prediction %>%
+  mutate(True = as.factor(at_test$Sport2)) %>%
+  arrange(.pred_1) %>% 
+  mutate(n = as.factor(seq(1, length(.pred_1)))) %>% 
+  pivot_longer(
+    cols = starts_with(".pred"),
+    names_to = "prediction",
+    values_to = "Index") %>%
+  filter(True != "Athlete") %>% 
+  ggplot(aes(x = n, y = Index, fill = as.factor(prediction)))+
+  geom_col(position = "stack", 
+           alpha = .5,
+           width = 1)+
+  geom_hline(yintercept = 0.5,
+             linetype = "dashed")+
+  scale_fill_brewer(palette = "Set2", 
+                    labels = c("Athlete", "Student"))+
+  theme(axis.title.y=element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y= element_blank(), 
+        legend.title = element_text(face = "bold"),
+        legend.position = "bottom",
+        legend.background = element_rect(color = "black")) + 
+  labs(title = "True Student (n = 99)",
+       fill = "Prediction") +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+  coord_flip()
+
 
 fig3a / fig3b
 
-# Figure 4 ----
 
+## After first peer-review
+
+## Figure 3 reviewed ----
+fig3_updated <- at_prediction %>% 
+  group_by(Sport2) %>% 
+  summarise(mean_pred1= mean(.pred_1),
+            sd_pred1 = sd(.pred_1),
+            n = length(.pred_1),
+            se = sd_pred1/(sqrt(length(.pred_1)))) %>% 
+  ggplot(aes(x = Sport2, mean_pred1*100))+
+  geom_col(aes(fill= Sport2),
+           color = "black")+
+  geom_text(aes(label = paste(round(mean_pred1*100, 2), "%" )), vjust= 5, size = 8, family = "Palatino Linotype")+
+  geom_errorbar(aes(ymin = mean_pred1*100 - se*100, ymax = mean_pred1*100 + se*100),
+                linewidth = 0.8,
+                width= .3, 
+                alpha = 0.8)+
+  labs(x = "",
+       y = "Athleticism index
+       ",
+       title = "")+
+  scale_y_continuous(limits = c(0,100),
+                     label = c("0%", "25%", "50%", "75%", "100%"),
+                     expand = c(0,0))+
+  scale_x_discrete(limits = rev(levels(at_prediction$Sport2)),
+                   labels = c("True athletes", "True students"))+
+  scale_fill_brewer(palette="Pastel1")+
+  theme_bw(base_size = 15,
+           base_family = "Palatino Linotype")+
+  theme(legend.position = "none",
+        axis.text.x  = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"),
+        axis.text.y = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"))
+
+  
+
+# Figure 4 ----
+## This figure was updated after first peer-review
 new_pred %>% 
   ggplot(aes(Index, name))+
   geom_segment(
     data = new_pred %>% 
       pivot_wider( names_from = prediction,
                    values_from = Index), 
-    aes(x = `.pred_Student (non-Athlete)`, xend = .pred_Athlete, 
+    aes(x = .pred_0, xend = .pred_1, 
         y = name, yend = name),
     alpha = 0.7, color = "gray70", size = 1.5)+
   geom_point(aes(color= prediction), size = 5) + 
@@ -888,22 +1139,38 @@ new_pred %>%
        color = "Predicted",
        x = "
        Athleticism Index")+
-  annotate("text", 
-           x = c(0.05, 0.91, 1), 
-           y = c("Sedentary Person", "Football Player", "Basketball player"),
-           label = c("0.128%", "0.824%", "0.922%"),
-           fontface = "bold",
-           size = 3.8)+
   theme_bw(base_size = 15)+
   theme(legend.justification = "center",
         legend.background = element_rect(color = 1),
         axis.text.x  = element_text(colour = "black", size = 11, face= "bold"),
         axis.text.y = element_text(colour = "black", size = 11, face= "bold"))
-  
 
+## After first peer-review
+## Figure 4 reviewed ----
 
+df_fig4 <- data.frame( tipo = factor(rep(c("Sedentary Person", "Soccer Player", "Basketball Player"), 2)),
+                       categoria = factor(rep(c("Athlete", 
+                                                "Non-Athlete"), 3)),
+                       value = c(12.8, 17.6, 92.2, 87.2, 82.4, 7.8))
+df_fig4 %>%
+  filter(categoria == "Athlete") %>% 
+  ggplot(aes(reorder(tipo, value), value))+ # reordenar eje X
+  geom_col(fill = "#acdacc", color = "black")+
+  geom_text(aes(label = paste(value, "%" )), vjust= -0.3, size = 5, family = "Palatino Linotype")+
+  scale_y_continuous(limits = c(0,100), label = c("0%", "25%", "50%", "75%", "100%"),
+                     expand = c(0,0))+
+  labs(y = "Athleticism index
+       ", 
+       x = "",
+       title = "")+
+  theme_bw(base_size = 15,
+           base_family = "Palatino Linotype")+
+  theme(axis.text.x  = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"),
+        axis.text.y = element_text(family = "Palatino Linotype", colour = "black", size = 10, face= "bold"))
 
+# Figure 5----
 
+shap_m1 + shap_m2
 
 
 
